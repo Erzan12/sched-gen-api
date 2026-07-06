@@ -4,10 +4,46 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+enum Role {
+  user
+  visitor
+  admin
+  assistant
+  tool
+}
+
+model Meeting {
+  id              String @id @default(uuid()) @db.Uuid
+  title           String
+  date            String  // yyyy-MM-dd
+  time            String  // HH:mm
+  durationMinutes Int    @default(30)
+  attendees       String[]
+  notes           String?
+  createdAt       DateTime  @default(now())
+}
+
+model Conversation {
+  id        String   @id @default(uuid()) @db.Uuid
+  createdAt DateTime @default(now())
+  message   Message[]
+}
+
+model Message {
+  id              String   @id  @default(uuid()) @db.Uuid
+  conversationId  String   @db.Uuid
+  conversation    Conversation  @relation(fields: [conversationId], references: [id])
+  role            Role     @default(visitor)
+  content         String
+  toolName        String?
+  toolArgs        Json?
+  toolResult      Json?
+  createdAt       DateTime  @default(now())
 }
