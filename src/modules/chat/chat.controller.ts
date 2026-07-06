@@ -2,13 +2,14 @@
 import { Controller, Post, Body, Res } from "@nestjs/common";
 import type { Response } from "express";
 import { LlmService } from "../llm/llm.service";
+import { ChatRequestDto } from "./dto/chat.dto";
 
 @Controller("chat")
 export class ChatController {
   constructor(private llm: LlmService) {}
 
   @Post()
-  async chat(@Body() body: { messages: any[] }, @Res() res: Response) {
+  async chat(@Body() body: ChatRequestDto, @Res() res: Response) {
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
