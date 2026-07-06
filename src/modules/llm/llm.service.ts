@@ -3,8 +3,12 @@ import { MeetingsService } from '../meetings/meetings/meetings.service';
 import { AvailabilityService } from '../meetings/availability/availability.service';
 import Groq from 'groq-sdk';
 import { Prisma, Role } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+console.log(process.env.GROQ_API_KEY);
+console.log(process.env.GROQ_MODEL);
+
+// const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 const toolDefs = [
     {
@@ -43,17 +47,39 @@ const toolDefs = [
 
 @Injectable()
 export class LlmService {
+    private groq: Groq;
+    private model: string;
+
     constructor(
         private meetings: MeetingsService,
-        private availability: AvailabilityService
-    ) {}
+        private availability: AvailabilityService,
+        private configService: ConfigService
+    ) {
+        // Initialize inside the constructor
+        const apiKey = this.configService.get<string>('GROQ_API_KEY');
+        this.model = this.configService.get<string>('GROQ_MODEL') || 'llama-3.3-70b-versatile';
+        
+        if (!apiKey) {
+            throw new Error('GROQ_API_KEY is missing from environment variables');
+        }
+        
+        this.groq = new Groq({ apiKey });
+    }
 
     async *runTurn(messages: Groq.Chat.ChatCompletionMessageParam[]) {
-        let currentMessages = [...messages];
+        // let currentMessages = [...messages];
+        const today = new Date().toISOString().split("T")[0]; // yyyy-MM-dd
+
+        const systemMessage: Groq.Chat.ChatCompletionMessageParam = {
+            role: "system",
+            content: `Today's date is ${today}. Always resolve relative dates ("Saturday", "next Sunday", "tomorrow") to an exact yyyy-MM-dd before calling any tool. Never call a tool with a non-ISO date string.`,
+        };
+
+        let currentMessages: Groq.Chat.ChatCompletionMessageParam[] = [systemMessage, ...messages];
 
         while (true) {
-            const completion = await groq.chat.completions.create({
-                model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+            const completion = await this.groq.chat.completions.create({
+                model: this.model,
                 messages: currentMessages,
                 tools: toolDefs,
                 tool_choice: "auto",
@@ -94,14 +120,41 @@ export class LlmService {
                 })),
             } as any);
 
+            // for (const tc of toolCalls) {
+            //     const args = JSON.parse(tc.function.arguments);
+            //     let result: any;
+
+            //     if (tc.function.name === "createMeeting") {
+            //         result = await this.meetings.createMeetings(args);
+            //     } else if (tc.function.name === "checkAvailability") {
+            //         result = { freeSlots: this.availability.getFreeSlots(args.date) };
+            //     }
+
+            //     yield { type: "tool_result", name: tc.function.name, args, result };
+
+            //     currentMessages.push({
+            //         role: Role.tool,
+            //         tool_call_id: tc.id,
+            //         content: JSON.stringify(result),
+            //     } as any);
+            // }
             for (const tc of toolCalls) {
                 const args = JSON.parse(tc.function.arguments);
                 let result: any;
 
-                if (tc.function.name === "createMeeting") {
-                    result = await this.meetings.createMeetings(args);
-                } else if (tc.function.name === "checkAvailability") {
-                    result = { freeSlots: this.availability.getFreeSlots(args.date) };
+                try {
+                    if (tc.function.name === "createMeeting") {
+                        result = await this.meetings.createMeetings(args);
+                    } else if (tc.function.name === "checkAvailability") {
+                        result = { freeSlots: this.availability.getFreeSlots(args.date) };
+                    }
+                } catch (err) {
+                    result = {
+                        error:
+                            err instanceof Error
+                                ? err.message
+                                : "Tool execution failed.",
+                    };
                 }
 
                 yield { type: "tool_result", name: tc.function.name, args, result };
